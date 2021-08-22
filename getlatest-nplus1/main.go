@@ -11,7 +11,6 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/gorilla/sessions"
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -35,7 +34,6 @@ const (
 
 var (
 	db                  *sqlx.DB
-	sessionStore        sessions.Store
 	mySQLConnectionData *MySQLConnectionEnv
 )
 
@@ -131,7 +129,6 @@ func (mc *MySQLConnectionEnv) ConnectDB() (*sqlx.DB, error) {
 }
 
 func init() {
-	sessionStore = sessions.NewCookieStore([]byte(getEnv("SESSION_KEY", "isucondition")))
 }
 
 func main() {
@@ -144,13 +141,6 @@ func main() {
 
 	e.GET("/api/isu", getIsuList)
 	e.GET("/api/trend", getTrend)
-
-	e.GET("/", getIndex)
-	e.GET("/isu/:jia_isu_uuid", getIndex)
-	e.GET("/isu/:jia_isu_uuid/condition", getIndex)
-	e.GET("/isu/:jia_isu_uuid/graph", getIndex)
-	e.GET("/register", getIndex)
-	e.Static("/assets", frontendContentsPath+"/assets")
 
 	mySQLConnectionData = NewMySQLConnectionEnv()
 
@@ -167,52 +157,10 @@ func main() {
 	e.Logger.Fatal(e.Start(serverPort))
 }
 
-func getSession(r *http.Request) (*sessions.Session, error) {
-	session, err := sessionStore.Get(r, sessionName)
-	if err != nil {
-		return nil, err
-	}
-	return session, nil
-}
-
-func getUserIDFromSession(c echo.Context) (string, int, error) {
-	session, err := getSession(c.Request())
-	if err != nil {
-		return "", http.StatusInternalServerError, fmt.Errorf("failed to get session: %v", err)
-	}
-	_jiaUserID, ok := session.Values["jia_user_id"]
-	if !ok {
-		return "", http.StatusUnauthorized, fmt.Errorf("no session")
-	}
-
-	jiaUserID := _jiaUserID.(string)
-	var count int
-
-	err = db.Get(&count, "SELECT COUNT(*) FROM `user` WHERE `jia_user_id` = ?",
-		jiaUserID)
-	if err != nil {
-		return "", http.StatusInternalServerError, fmt.Errorf("db error: %v", err)
-	}
-
-	if count == 0 {
-		return "", http.StatusUnauthorized, fmt.Errorf("not found: user")
-	}
-
-	return jiaUserID, 0, nil
-}
-
 // GET /api/isu
 // ISUの一覧を取得
 func getIsuList(c echo.Context) error {
-	jiaUserID, errStatusCode, err := getUserIDFromSession(c)
-	if err != nil {
-		if errStatusCode == http.StatusUnauthorized {
-			return c.String(http.StatusUnauthorized, "you are not signed in")
-		}
-
-		c.Logger().Error(err)
-		return c.NoContent(http.StatusInternalServerError)
-	}
+	var jiaUserID string = "1"
 
 	tx, err := db.Beginx()
 	if err != nil {
@@ -381,8 +329,4 @@ func calculateConditionLevel(condition string) (string, error) {
 	}
 
 	return conditionLevel, nil
-}
-
-func getIndex(c echo.Context) error {
-	return c.File(frontendContentsPath + "/index.html")
 }
