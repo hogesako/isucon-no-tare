@@ -1,10 +1,10 @@
 version: "3.9"
 services:
 
-  # redis:
-  #   image: redis:alpine
-  #   ports:
-  #     - "6379:6379"
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
 
   nginx:
     container_name: nginx
@@ -23,10 +23,10 @@ services:
     - ./mysql/my.cnf:/etc/mysql/conf.d/my.cnf
     - ./mysql/logs:/var/log/mysql/
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: isucon
-      MYSQL_USER: isucon
-      MYSQL_PASSWORD: isucon
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     ports:
     - 3306:3306
 
@@ -37,6 +37,6 @@ services:
     - PMA_ARBITRARY=1
     - PMA_HOSTS=mysql
     - PMA_USER=root
-    - PMA_PASSWORD=root
+    - PMA_PASSWORD=${MYSQL_ROOT_PASSWORD}
     ports:
     - 8080:80
