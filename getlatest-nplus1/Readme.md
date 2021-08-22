@@ -130,6 +130,7 @@ on i.jia_isu_uuid = con.jia_isu_uuid;
 
 ### indexあり
 group byとmax計算にインデックスが使用されるのでとても早い。
+timestampのインデックスははASC,DESCどちらでも使用された。
 ```
 | -> Nested loop left join  (cost=17.25 rows=110) (actual time=3.158..5.752 rows=10 loops=1)
     -> Table scan on i  (cost=1.25 rows=10) (actual time=0.458..0.575 rows=10 loops=1)
@@ -143,11 +144,57 @@ group byとmax計算にインデックスが使用されるのでとても早い
 ## LATERAL
 ### SQL
 ```
+select * from isu i
+left join lateral (select * from isu_condition con where i.jia_isu_uuid = con.jia_isu_uuid order by timestamp desc limit 1) latest_con
+on i.jia_isu_uuid = latest_con.jia_isu_uuid;
+```
+
+### indexなし
+```
+| -> Nested loop left join  (cost=1042.30 rows=10) (actual time=78.185..391.444 rows=10 loops=1)
+    -> Invalidate materialized tables (row from i)  (cost=1.25 rows=10) (actual time=0.293..0.345 rows=10 loops=1)
+        -> Table scan on i  (cost=1.25 rows=10) (actual time=0.285..0.326 rows=10 loops=1)
+    -> Index lookup on latest_con using <auto_key0> (jia_isu_uuid=i.jia_isu_uuid)  (actual time=0.009..0.011 rows=1 loops=10)
+        -> Materialize (invalidate on row from i)  (cost=139.81..139.81 rows=1) (actual time=39.102..39.104 rows=1 loops=10)
+            -> Limit: 1 row(s)  (cost=139.71 rows=1) (actual time=39.063..39.064 rows=1 loops=10)
+                -> Sort: con.`timestamp` DESC, limit input to 1 row(s) per chunk  (cost=139.71 rows=9946) (actual time=39.060..39.060 rows=1 loops=10)
+                    -> Filter: (i.jia_isu_uuid = con.jia_isu_uuid)  (cost=139.71 rows=9946) (actual time=14.312..37.466 rows=1000 loops=10)
+                        -> Table scan on con  (cost=139.71 rows=9946) (actual time=0.113..24.901 rows=10000 loops=10)
+ |
+```
+
+### indexあり
+124ms
+```
+| -> Nested loop left join  (cost=227.66 rows=10) (actual time=27.747..124.656 rows=10 loops=1)
+    -> Invalidate materialized tables (row from i)  (cost=1.25 rows=10) (actual time=0.376..0.464 rows=10 loops=1)
+        -> Table scan on i  (cost=1.25 rows=10) (actual time=0.316..0.375 rows=10 loops=1)
+    -> Index lookup on latest_con using <auto_key0> (jia_isu_uuid=i.jia_isu_uuid)  (actual time=0.009..0.011 rows=1 loops=10)
+        -> Materialize (invalidate on row from i)  (cost=220.31..220.31 rows=1) (actual time=12.390..12.393 rows=1 loops=10)
+            -> Limit: 1 row(s)  (cost=220.21 rows=1) (actual time=12.347..12.348 rows=1 loops=10)
+                -> Sort: con.`timestamp` DESC, limit input to 1 row(s) per chunk  (cost=220.21 rows=995) (actual time=12.342..12.342 rows=1 loops=10)
+                    -> Index lookup on con using jia_isu_uuid_timestamp_idx (jia_isu_uuid=i.jia_isu_uuid)  (actual time=0.113..10.392 rows=1000 loops=10)
 ```
 
 ## 相関サブクエリ
 ### SQL
+```
+select * from isu i
+left join
+(select * from isu_condition con where con.timestamp = (select timestamp from isu_condition latest where latest.jia_isu_uuid = con.jia_isu_uuid order by timestamp desc limit 1)) cons
+on cons.jia_isu_uuid = i.jia_isu_uuid;
+```
 ### explain analyze
 糞重い
+```
+| -> Nested loop left join  (cost=2203.35 rows=9946) (actual time=18.494..44468.229 rows=10 loops=1)
+    -> Table scan on i  (cost=1.25 rows=10) (actual time=0.241..0.320 rows=10 loops=1)
+    -> Filter: (con.`timestamp` = (select #3))  (cost=130.70 rows=995) (actual time=6.179..4446.771 rows=1 loops=10)
+        -> Index lookup on con using jia_isu_uuid_timestamp_idx (jia_isu_uuid=i.jia_isu_uuid)  (cost=130.70 rows=995) (actual time=0.549..10.217 rows=1000 loops=10)
+        -> Select #3 (subquery in condition; dependent)
+            -> Limit: 1 row(s)  (cost=118.78 rows=1) (actual time=4.429..4.430 rows=1 loops=10000)
+                -> Sort: latest.`timestamp` DESC, limit input to 1 row(s) per chunk  (cost=118.78 rows=995) (actual time=4.427..4.427 rows=1 loops=10000)
+                    -> Index lookup on latest using jia_isu_uuid_timestamp_idx (jia_isu_uuid=con.jia_isu_uuid)  (actual time=0.033..3.348 rows=1000 loops=10000)
+```
 
 # 結論
