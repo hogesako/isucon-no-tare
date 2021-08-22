@@ -20,6 +20,14 @@ services:
     ports:
     - 18080:80
 
+  varnish:
+    container_name: varnish
+    image: varnish:latest
+    volumes:
+      - ./varnish/default.vcl:/etc/varnish/default.vcl
+    ports:
+    - 3001:80
+
   mysql:
     container_name: mysql
     image: mysql:8.0
