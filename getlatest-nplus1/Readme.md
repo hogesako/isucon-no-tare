@@ -35,9 +35,6 @@ explain analyze SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = '6892a276-e
  -> Limit: 1 row(s)  (cost=220.75 rows=1) (actual time=3.001..3.003 rows=1 loops=1)
     -> Index lookup on isu_condition using jia_isu_uuid_timestamp_idx (jia_isu_uuid='6892a276-e299-b319-1876-6d7bbaa1e176'), with index condition: (isu_condition.jia_isu_uuid = '6892a276-e299-b319-1876-6d7bbaa1e176')  (cost=220.75 rows=1000) (actual time=2.985..2.985 rows=1 loops=1)
 ```
-
-```
-```
 ## window関数
 
 ### SQL
