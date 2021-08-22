@@ -4,7 +4,7 @@
 # テーブル
 isucon11予選からisuとisu_conditionだけ利用。
 
-# 検証
+# mysql8.0で検証
 ```
 echo "GET http://localhost:3000/api/isu" | vegeta attack -rate=100 -duration=10s | tee results.bin |vegeta report
 ```
@@ -244,6 +244,34 @@ on cons.jia_isu_uuid = i.jia_isu_uuid;
 |    1 | PRIMARY     | <derived3> | ref   | key0                       | key0                       | 144     | isucondition.i.jia_isu_uuid                          |    2 | Using where                                               |
 |    1 | PRIMARY     | con        | ref   | jia_isu_uuid_timestamp_idx | jia_isu_uuid_timestamp_idx | 149     | isucondition.i.jia_isu_uuid,latest_con.max_timestamp |    1 |                                                           |
 |    3 | DERIVED     | latest     | range | jia_isu_uuid_timestamp_idx | jia_isu_uuid_timestamp_idx | 144     | NULL                                                 |   21 | Using index for group-by; Using temporary; Using filesort |
++------+-------------+------------+-------+----------------------------+----------------------------+---------+------------------------------------------------------+------+-----------------------------------------------------------+
+```
+
+## サブクエリ(generated columns with index)
+やっぱりfilesortがでてしまう
+```
+CREATE TABLE `isu_condition` (
+  `id` bigint AUTO_INCREMENT,
+  `jia_isu_uuid` CHAR(36) NOT NULL,
+  `timestamp` DATETIME NOT NULL,
+  `timestamp_desc` BIGINT GENERATED ALWAYS AS (-1 * timestamp) STORED,
+  `is_sitting` TINYINT(1) NOT NULL,
+  `condition` VARCHAR(255) NOT NULL,
+  `message` VARCHAR(255) NOT NULL,
+  `created_at` DATETIME(6) DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY(`id`)
+) ENGINE=InnoDB DEFAULT CHARACTER SET=utf8mb4;
+CREATE INDEX jia_isu_uuid_timestamp_idx ON isu_condition (jia_isu_uuid,`timestamp_desc`);
+```
+
+```
++------+-------------+------------+-------+----------------------------+----------------------------+---------+------------------------------------------------------+------+-----------------------------------------------------------+
+| id   | select_type | table      | type  | possible_keys              | key                        | key_len | ref                                                  | rows | Extra                                                     |
++------+-------------+------------+-------+----------------------------+----------------------------+---------+------------------------------------------------------+------+-----------------------------------------------------------+
+|    1 | PRIMARY     | i          | ALL   | NULL                       | NULL                       | NULL    | NULL                                                 |   10 |                                                           |
+|    1 | PRIMARY     | <derived3> | ref   | key0                       | key0                       | 144     | isucondition.i.jia_isu_uuid                          |    2 | Using where                                               |
+|    1 | PRIMARY     | con        | ref   | jia_isu_uuid_timestamp_idx | jia_isu_uuid_timestamp_idx | 153     | isucondition.i.jia_isu_uuid,latest_con.min_timestamp |    1 |                                                           |
+|    3 | DERIVED     | latest     | range | jia_isu_uuid_timestamp_idx | jia_isu_uuid_timestamp_idx | 153     | NULL                                                 |   21 | Using index for group-by; Using temporary; Using filesort |
 +------+-------------+------------+-------+----------------------------+----------------------------+---------+------------------------------------------------------+------+-----------------------------------------------------------+
 ```
 

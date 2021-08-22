@@ -35,6 +35,26 @@ services:
           cpus: '2.0'
           memory: 4098M
 
+  mariadb:
+    container_name: mariadb
+    image: mariadb:10.3
+    volumes:
+    - ./mariadb/data:/var/lib/mysql
+    - ./mariadb/my.cnf:/etc/mysql/conf.d/my.cnf
+    - ./mariadb/logs:/var/log/mysql/
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+    - 3307:3306
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4098M
+
   phpmyadmin:
     container_name: test_phpmyadmin
     image: phpmyadmin/phpmyadmin
