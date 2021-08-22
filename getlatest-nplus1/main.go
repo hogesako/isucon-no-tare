@@ -46,7 +46,6 @@ type Isu struct {
 	ID         int       `db:"id" json:"id"`
 	JIAIsuUUID string    `db:"jia_isu_uuid" json:"jia_isu_uuid"`
 	Name       string    `db:"name" json:"name"`
-	Image      []byte    `db:"image" json:"-"`
 	Character  string    `db:"character" json:"character"`
 	JIAUserID  string    `db:"jia_user_id" json:"-"`
 	CreatedAt  time.Time `db:"created_at" json:"-"`
@@ -139,6 +138,7 @@ func main() {
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 
+	e.GET("/api/initialize", getInitialize)
 	e.GET("/api/isu", getIsuList)
 	e.GET("/api/trend", getTrend)
 
@@ -155,6 +155,37 @@ func main() {
 
 	serverPort := fmt.Sprintf(":%v", getEnv("SERVER_APP_PORT", "3000"))
 	e.Logger.Fatal(e.Start(serverPort))
+}
+
+func getInitialize(c echo.Context) error {
+	tx, err := db.Beginx()
+	if err != nil {
+		c.Logger().Errorf("db error: %v", err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	defer tx.Rollback()
+	isuList := []Isu{}
+	tx.Exec("TRUNCATE `isu_condition`")
+	tx.Select(&isuList, "Select * FROM `isu`")
+	for _, isu := range isuList {
+		var uuid = isu.JIAIsuUUID
+		for i := 0; i < 1000; i++ {
+			var isSitting bool
+			if i%3 == 0 {
+				isSitting = true
+			} else {
+				isSitting = false
+			}
+			var message string = fmt.Sprint("this isu is"+uuid+" %d", i)
+			var condition string = "is_dirty=true,is_overweight=true,is_broken=false"
+			tx.Exec("INSERT INTO `isu_condition`"+
+				"	(`jia_isu_uuid`, `timestamp`, `is_sitting`, `condition`, `message`)"+
+				"	VALUES (?, ?, ?, ?, ?)",
+				uuid, time.Now().Add(-1*time.Duration(i)*time.Hour), isSitting, condition, message)
+		}
+
+	}
+	return c.JSON(http.StatusOK, isuList)
 }
 
 // GET /api/isu
