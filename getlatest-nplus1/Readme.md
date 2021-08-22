@@ -198,3 +198,5 @@ on cons.jia_isu_uuid = i.jia_isu_uuid;
 ```
 
 # 結論
+WINDOW関数やLATERALではisu_conditionの集計時にindexが使われていない（新しい機能のため？）
+そのため、現在ではjia_isu_uuid,timestampにindex貼りつつ古き良きサブクエリが早い
