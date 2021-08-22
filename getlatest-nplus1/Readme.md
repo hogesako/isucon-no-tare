@@ -141,6 +141,20 @@ timestampのインデックスははASC,DESCどちらでも使用された。
         -> Index lookup on con using jia_isu_uuid_timestamp_idx (jia_isu_uuid=i.jia_isu_uuid, timestamp=latest_con.max_timestamp)  (cost=0.26 rows=1) (actual time=0.203..0.225 rows=1 loops=10)
 ```
 
+### indexあり(jia_isu_uuidのみのインデックス)
+group byのみにindex使用
+```
+| -> Nested loop left join  (cost=259.85 rows=0) (actual time=114.750..185.777 rows=10 loops=1)
+    -> Table scan on i  (cost=1.25 rows=10) (actual time=0.277..0.309 rows=10 loops=1)
+    -> Nested loop inner join  (cost=124901.87 rows=0) (actual time=11.763..18.542 rows=1 loops=10)
+        -> Index lookup on latest_con using <auto_key1> (uuid=i.jia_isu_uuid)  (actual time=0.006..0.008 rows=1 loops=10)
+            -> Materialize  (cost=0.00..0.00 rows=0) (actual time=11.402..11.405 rows=1 loops=10)
+                -> Group aggregate: max(latest.`timestamp`)  (actual time=28.595..112.995 rows=10 loops=1)
+                    -> Index scan on latest using jia_isu_uuid_timestamp_idx  (cost=1034.85 rows=9946) (actual time=3.156..76.812 rows=10000 loops=1)
+        -> Filter: (con.`timestamp` = latest_con.max_timestamp)  (cost=120.85 rows=995) (actual time=0.357..7.131 rows=1 loops=10)
+            -> Index lookup on con using jia_isu_uuid_timestamp_idx (jia_isu_uuid=i.jia_isu_uuid)  (cost=120.85 rows=995) (actual time=0.354..6.455 rows=1000 loops=10)
+```
+
 ## LATERAL
 ### SQL
 ```
@@ -195,6 +209,42 @@ on cons.jia_isu_uuid = i.jia_isu_uuid;
             -> Limit: 1 row(s)  (cost=118.78 rows=1) (actual time=4.429..4.430 rows=1 loops=10000)
                 -> Sort: latest.`timestamp` DESC, limit input to 1 row(s) per chunk  (cost=118.78 rows=995) (actual time=4.427..4.427 rows=1 loops=10000)
                     -> Index lookup on latest using jia_isu_uuid_timestamp_idx (jia_isu_uuid=con.jia_isu_uuid)  (actual time=0.033..3.348 rows=1000 loops=10000)
+```
+
+# mariadb 10.3で検証
+## window関数 0.08秒
+```
++------+-------------+---------------+-------+---------------+---------+---------+-----------------------------+------+-----------------+
+| id   | select_type | table         | type  | possible_keys | key     | key_len | ref                         | rows | Extra           |
++------+-------------+---------------+-------+---------------+---------+---------+-----------------------------+------+-----------------+
+|    1 | PRIMARY     | i             | index | NULL          | PRIMARY | 8       | NULL                        |   10 | Using where     |
+|    1 | PRIMARY     | <derived3>    | ref   | key0          | key0    | 144     | isucondition.i.jia_isu_uuid |   99 | Using where     |
+|    3 | DERIVED     | isu_condition | ALL   | NULL          | NULL    | NULL    | NULL                        | 9934 | Using temporary |
++------+-------------+---------------+-------+---------------+---------+---------+-----------------------------+------+-----------------+
+```
+## サブクエリ(indexなし) 0.07秒
+```
++------+-------------+------------+------+---------------+------+---------+-----------------------------+------+---------------------------------+
+| id   | select_type | table      | type | possible_keys | key  | key_len | ref                         | rows | Extra                           |
++------+-------------+------------+------+---------------+------+---------+-----------------------------+------+---------------------------------+
+|    1 | PRIMARY     | i          | ALL  | NULL          | NULL | NULL    | NULL                        |   10 |                                 |
+|    1 | PRIMARY     | <derived3> | ref  | key0          | key0 | 144     | isucondition.i.jia_isu_uuid |  103 |                                 |
+|    1 | PRIMARY     | con        | ALL  | NULL          | NULL | NULL    | NULL                        | 9934 | Using where                     |
+|    3 | DERIVED     | latest     | ALL  | NULL          | NULL | NULL    | NULL                        | 9934 | Using temporary; Using filesort |
++------+-------------+------------+------+---------------+------+---------+-----------------------------+------+---------------------------------+
+```
+
+## サブクエリ(indexあり) 0.01秒
+ファイルソートは出てしまっている
+```
++------+-------------+------------+-------+----------------------------+----------------------------+---------+------------------------------------------------------+------+-----------------------------------------------------------+
+| id   | select_type | table      | type  | possible_keys              | key                        | key_len | ref                                                  | rows | Extra                                                     |
++------+-------------+------------+-------+----------------------------+----------------------------+---------+------------------------------------------------------+------+-----------------------------------------------------------+
+|    1 | PRIMARY     | i          | ALL   | NULL                       | NULL                       | NULL    | NULL                                                 |   10 |                                                           |
+|    1 | PRIMARY     | <derived3> | ref   | key0                       | key0                       | 144     | isucondition.i.jia_isu_uuid                          |    2 | Using where                                               |
+|    1 | PRIMARY     | con        | ref   | jia_isu_uuid_timestamp_idx | jia_isu_uuid_timestamp_idx | 149     | isucondition.i.jia_isu_uuid,latest_con.max_timestamp |    1 |                                                           |
+|    3 | DERIVED     | latest     | range | jia_isu_uuid_timestamp_idx | jia_isu_uuid_timestamp_idx | 144     | NULL                                                 |   21 | Using index for group-by; Using temporary; Using filesort |
++------+-------------+------------+-------+----------------------------+----------------------------+---------+------------------------------------------------------+------+-----------------------------------------------------------+
 ```
 
 # 結論
