@@ -128,6 +128,7 @@ on i.jia_isu_uuid = con.jia_isu_uuid;
 ### indexあり
 group byとmax計算にインデックスが使用されるのでとても早い。
 timestampのインデックスははASC,DESCどちらでも使用された。
+このバージョンでなら552RPS程度。
 ```
 | -> Nested loop left join  (cost=17.25 rows=110) (actual time=3.158..5.752 rows=10 loops=1)
     -> Table scan on i  (cost=1.25 rows=10) (actual time=0.458..0.575 rows=10 loops=1)
