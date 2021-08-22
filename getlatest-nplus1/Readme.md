@@ -278,3 +278,5 @@ CREATE INDEX jia_isu_uuid_timestamp_idx ON isu_condition (jia_isu_uuid,`timestam
 ```
 
 # MySQL + Redis(最新行だけredisに入れる)
+レスポンスタイムはサブクエリ版より10msくらい遅い。ただし、負荷がmysqlとredisに分散できるのでスループットは900RPSくらいになった。
+
