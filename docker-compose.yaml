@@ -29,10 +29,11 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     ports:
     - 3306:3306
-    resources:
-      limits:
-        cpus: '2.0'
-        memory: 4098M
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4098M
 
   phpmyadmin:
     container_name: test_phpmyadmin
