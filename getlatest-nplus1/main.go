@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-redis/redis/v8"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
@@ -34,7 +37,10 @@ const (
 var (
 	db                  *sqlx.DB
 	mySQLConnectionData *MySQLConnectionEnv
+	redisClient         *redis.Client
 )
+
+var ctx = context.Background()
 
 type Config struct {
 	Name string `db:"name"`
@@ -64,13 +70,13 @@ type GetIsuListResponse struct {
 }
 
 type IsuCondition struct {
-	ID         int       `db:"id"`
-	JIAIsuUUID string    `db:"jia_isu_uuid"`
-	Timestamp  time.Time `db:"timestamp"`
-	IsSitting  bool      `db:"is_sitting"`
-	Condition  string    `db:"condition"`
-	Message    string    `db:"message"`
-	CreatedAt  time.Time `db:"created_at"`
+	ID         int       `db:"id" json:"id"`
+	JIAIsuUUID string    `db:"jia_isu_uuid" json:"jia_isu_uuid"`
+	Timestamp  time.Time `db:"timestamp" json:"timestamp"`
+	IsSitting  bool      `db:"is_sitting" json:"is_sitting"`
+	Condition  string    `db:"condition" json:"condition"`
+	Message    string    `db:"message" json:"message"`
+	CreatedAt  time.Time `db:"created_at" json:"created_at"`
 }
 
 type MySQLConnectionEnv struct {
@@ -122,6 +128,15 @@ func getEnv(key string, defaultValue string) string {
 	return defaultValue
 }
 
+func RedisClient() *redis.Client {
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "", // no password set
+		DB:       0,  // use default DB
+	})
+	return rdb
+}
+
 func NewMySQLConnectionEnv() *MySQLConnectionEnv {
 	return &MySQLConnectionEnv{
 		Host:     getEnv("MYSQL_HOST", "127.0.0.1"),
@@ -151,6 +166,8 @@ func main() {
 	e.GET("/api/initialize", getInitialize)
 	e.GET("/api/isu", getIsuList)
 	e.GET("/api/isu-subquery", getIsuListSubquery)
+	e.GET("/api/isu-redis", getIsuListRedis)
+	e.GET("/api/memoryload", getMemoryLoad)
 
 	mySQLConnectionData = NewMySQLConnectionEnv()
 
@@ -162,6 +179,9 @@ func main() {
 	}
 	db.SetMaxOpenConns(100)
 	defer db.Close()
+
+	redisClient = RedisClient()
+	defer redisClient.Close()
 
 	serverPort := fmt.Sprintf(":%v", getEnv("SERVER_APP_PORT", "3000"))
 	e.Logger.Fatal(e.Start(serverPort))
@@ -198,8 +218,89 @@ func getInitialize(c echo.Context) error {
 	return c.JSON(http.StatusOK, isuList)
 }
 
+func getMemoryLoad(c echo.Context) error {
+	tx, err := db.Beginx()
+	if err != nil {
+		c.Logger().Errorf("db error: %v", err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+	defer tx.Rollback()
+	isuList := []Isu{}
+	tx.Select(&isuList, "Select * FROM `isu`")
+	for _, isu := range isuList {
+		var jiaIsuUuid = isu.JIAIsuUUID
+		var isuCon IsuCondition
+		c.Logger().Debug(jiaIsuUuid)
+		err := tx.Get(&isuCon, "SELECT * FROM `isu_condition` WHERE `jia_isu_uuid` = ? ORDER BY `timestamp` DESC LIMIT 1", isu.JIAIsuUUID)
+		if err != nil {
+			panic(err)
+		}
+		c.Logger().Debug(isuCon.JIAIsuUUID)
+		c.Logger().Debug(isuCon.Condition)
+		isuconJson, _ := json.Marshal(isuCon)
+
+		c.Logger().Debug(string(isuconJson))
+		err = redisClient.Set(ctx, jiaIsuUuid, string(isuconJson), 0).Err()
+		if err != nil {
+			panic(err)
+		}
+	}
+	return c.JSON(http.StatusOK, "OK")
+}
+
 // GET /api/isu
 // ISUの一覧を取得
+func getIsuListRedis(c echo.Context) error {
+	var jiaUserID string = "1"
+
+	isuList := []Isu{}
+	err := db.Select(
+		&isuList,
+		"SELECT * FROM `isu` WHERE `jia_user_id` = ? ORDER BY `id` DESC",
+		jiaUserID)
+	if err != nil {
+		c.Logger().Errorf("db error: %v", err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	responseList := []GetIsuListResponse{}
+	for _, isu := range isuList {
+		var lastCondition IsuCondition
+		foundLastCondition := true
+		jsonStr, _ := redisClient.Get(ctx, isu.JIAIsuUUID).Result()
+
+		json.Unmarshal([]byte(jsonStr), &lastCondition)
+
+		var formattedCondition *GetIsuConditionResponse
+		if foundLastCondition {
+			conditionLevel, err := calculateConditionLevel(lastCondition.Condition)
+			if err != nil {
+				c.Logger().Error(err)
+				return c.NoContent(http.StatusInternalServerError)
+			}
+
+			formattedCondition = &GetIsuConditionResponse{
+				JIAIsuUUID:     lastCondition.JIAIsuUUID,
+				IsuName:        isu.Name,
+				Timestamp:      lastCondition.Timestamp.Unix(),
+				IsSitting:      lastCondition.IsSitting,
+				Condition:      lastCondition.Condition,
+				ConditionLevel: conditionLevel,
+				Message:        lastCondition.Message,
+			}
+		}
+
+		res := GetIsuListResponse{
+			ID:                 isu.ID,
+			JIAIsuUUID:         isu.JIAIsuUUID,
+			Name:               isu.Name,
+			Character:          isu.Character,
+			LatestIsuCondition: formattedCondition}
+		responseList = append(responseList, res)
+	}
+	return c.JSON(http.StatusOK, responseList)
+}
+
 func getIsuList(c echo.Context) error {
 	var jiaUserID string = "1"
 
@@ -274,13 +375,6 @@ func getIsuList(c echo.Context) error {
 
 func getIsuListSubquery(c echo.Context) error {
 	var jiaUserID string = "1"
-
-	// tx, err := db.Beginx()
-	// if err != nil {
-	// 	c.Logger().Errorf("db error: %v", err)
-	// 	return c.NoContent(http.StatusInternalServerError)
-	// }
-	// defer tx.Rollback()
 
 	isuConditions := []GetIsuJoinedCondition{}
 	err := db.Select(
