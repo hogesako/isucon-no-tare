@@ -17,8 +17,11 @@ services:
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
       - ./nginx/html:/usr/share/nginx/html
+      - ./nginx/keys/server.key:/tmp/server.key
+      - ./nginx/keys/server.crt:/tmp/server.crt
     ports:
-    - 18080:80
+    - 80:80
+    - 443:443
 
   varnish:
     container_name: varnish
