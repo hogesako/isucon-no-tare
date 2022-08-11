@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/labstack/echo-contrib/jaegertracing"
 	"github.com/labstack/echo/v4"
@@ -29,6 +30,13 @@ func Fibonacci(n int) (uint64, error) {
 func handleGetFibonacci(c echo.Context) error {
 	num, _ := strconv.Atoi(c.Param("num"))
 	fibo, _ := Fibonacci(num)
+
+	time.Sleep(40 * time.Millisecond)
+	sp := jaegertracing.CreateChildSpan(c, "100ms sleep")
+	defer sp.Finish()
+
+	time.Sleep(100 * time.Millisecond)
+
 	return c.String(http.StatusOK, strconv.FormatUint(fibo, 10))
 }
 
