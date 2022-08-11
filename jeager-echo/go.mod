@@ -1,4 +1,4 @@
-module otel-test
+module jeager-echo
 
 go 1.19
 
